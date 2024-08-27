@@ -36,9 +36,8 @@ class REINFORCE(DeepAgent):
             action: Action to be performed
         """
         obs = self.world_obs_2_model_obs(obs)
-        action, prob = self.net(obs)
+        action, prob = self.policy(obs)
         self.probs.append(prob)
-
         return action
 
     
