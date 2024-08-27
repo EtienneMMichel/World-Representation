@@ -21,6 +21,7 @@ class REINFORCE(DeepAgent):
         
         
     def world_obs_2_model_obs(self, obs):
+        # May include VAE model to exploit latent space
         return torch.tensor(np.array([obs]))
 
     

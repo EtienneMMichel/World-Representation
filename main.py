@@ -62,7 +62,7 @@ def train_env(config):
 
 
 def test_env(config):
-    env = envs.make_env(config["env"])
+    env = envs.test_env(config["env"])
     is_rendering = config["env"]["render"]
     seeds =  config["seeds"]
     rewards_over_seeds = []
@@ -82,8 +82,6 @@ def test_env(config):
         episode_infos = []
         done = False
         while not done:
-            if is_rendering:
-                env.render()
             action = agent.act(state)
             new_state, reward, terminated, truncated, info = env.step(action)
             rewards.append(reward)
@@ -91,6 +89,7 @@ def test_env(config):
             done = terminated or truncated
             agent.update(state, action, reward, new_state)
             state = new_state
+            env.render()
 
         reward_over_episodes.append(rewards[-1])
         policy_loss = agent.episode_update()
