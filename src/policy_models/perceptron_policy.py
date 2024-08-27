@@ -2,8 +2,11 @@ import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
 import os
+from functools import reduce
+from . import controller
 
-class Perceptron_Policy_Network(nn.Module):
+
+class Gaussian_Perceptron_Policy_Network(nn.Module):
     """Parametrized Policy Network."""
 
     def __init__(self, obs_space_dims, action_space_dims, config):
@@ -15,40 +18,32 @@ class Perceptron_Policy_Network(nn.Module):
             action_space_dims: Dimension of the action space
         """
         super().__init__()
+        
         self.eps = 1e-6  # small number for mathematical stability
         hidden_space1 = 16  # Nothing special with 16, feel free to change
         hidden_space2 = 32  # Nothing special with 32, feel free to change
-
+        inputs_ = reduce((lambda x, y: x * y), obs_space_dims)
+        self.controller = controller.Distribution_Controller(dist_type="Gaussian", action_space_dims=action_space_dims)
         # Shared Network
         self.shared_net = nn.Sequential(
-            nn.Linear(obs_space_dims, hidden_space1),
+            nn.Linear(inputs_, hidden_space1),
             nn.Tanh(),
             nn.Linear(hidden_space1, hidden_space2),
             nn.Tanh(),
+            
         )
 
-        # Policy Mean specific Linear Layer
-        self.policy_mean_net = nn.Sequential(
-            nn.Linear(hidden_space2, action_space_dims)
+        self.means_net = nn.Sequential(
+            nn.Linear(hidden_space2, action_space_dims),
         )
 
-        # Policy Std Dev specific Linear Layer
-        self.policy_stddev_net = nn.Sequential(
-            nn.Linear(hidden_space2, action_space_dims)
+        self.stddevs_net = nn.Sequential(
+            nn.Linear(hidden_space2, action_space_dims),
         )
 
-    def model_action_2_world_action(self, action):
-        # create a normal distribution from the predicted
-        #   mean and standard deviation and sample an action
-        distrib = Normal(action["means"][0] + self.eps, action["stddevs"][0] + self.eps)
-        action = distrib.sample()
-        # action = (torch.tensor(1) if action > .5 else torch.tensor(0)) # IF SCALAR (Discrete)
-        prob = distrib.log_prob(action)
-        action = action.numpy()
-        
-        return action, prob
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+
+    def forward(self, x: torch.Tensor):
         """Conditioned on the observation, returns the mean and standard deviation
          of a normal distribution from which an action is sampled from.
 
@@ -59,20 +54,25 @@ class Perceptron_Policy_Network(nn.Module):
             action_means: predicted mean of the normal distribution
             action_stddevs: predicted standard deviation of the normal distribution
         """
+        x = torch.flatten(x)
         shared_features = self.shared_net(x.float())
-
-        action_means = self.policy_mean_net(shared_features)
-        action_stddevs = torch.log(
-            1 + torch.exp(self.policy_stddev_net(shared_features))
+        means = self.means_net(shared_features)
+        stddevs = torch.log(
+            1 + torch.exp(self.stddevs_net(shared_features))
         )
+        action_distribution = []
+        for mean, stddev in zip(means, stddevs):
+            action_distribution.append({
+                "mean": mean,
+                "stddev": stddev,
+                })
 
-        action, prob = self.model_action_2_world_action({"means": action_means, "stddevs": action_stddevs})
-        return  action, prob
-    
+        return self.controller.model_action_2_world_action(action_distribution)
+
 
     def save(self, saving_path):
         path = f"{saving_path}/models"
         os.mkdir(path)
         torch.save(self.shared_net.state_dict(), f"{path}/shared_net.pt")
-        torch.save(self.policy_mean_net.state_dict(), f"{path}/policy_mean_net.pt")
-        torch.save(self.policy_stddev_net.state_dict(), f"{path}/policy_stddev_net.pt")
+        torch.save(self.means_net.state_dict(), f"{path}/means_net.pt")
+        torch.save(self.stddevs_net.state_dict(), f"{path}/stddevs_net.pt")
